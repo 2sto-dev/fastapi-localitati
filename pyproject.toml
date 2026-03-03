@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "localitati-sdk"
+version = "1.0.0"
+description = "Production-ready Python SDK for fastapi-localitati"
+requires-python = ">=3.10"
+dependencies = [
+  "requests>=2.31",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["localitati_sdk*"]

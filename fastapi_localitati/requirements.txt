@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+sqlalchemy
+aiomysql
+pymysql
+pydantic
+pydantic-settings
+python-dotenv
+python-jose[cryptography]
+passlib[bcrypt]
+requests
+aiohttp
+orjson
+filelock
+fastapi-utils
+passlib
+bcrypt==4.0.1
