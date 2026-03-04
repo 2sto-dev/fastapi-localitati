@@ -221,3 +221,82 @@ async def read_tree(
             schemas.LocalitateOut.model_validate(localitate, from_attributes=True)
         ],
     )
+
+
+@router.get("/autocomplete/judete", response_model=List[schemas.JudetBase])
+async def autocomplete_judete(
+    q: str,
+    limit: int = 10,
+    _: models.User = Depends(get_current_user),
+    __: None = Depends(rate_limiter),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(models.Judet).filter(models.Judet.denumire.ilike(f"{q}%")).limit(limit)
+    )
+    return result.scalars().all()
+
+
+@router.get("/autocomplete/localitati", response_model=List[schemas.LocalitateOut])
+async def autocomplete_localitati(
+    cod_judet: int,
+    q: str,
+    limit: int = 10,
+    _: models.User = Depends(get_current_user),
+    __: None = Depends(rate_limiter),
+    db: AsyncSession = Depends(get_db),
+):
+    # găsește judet.id din cod
+    res_j = await db.execute(select(models.Judet).filter(models.Judet.cod == cod_judet))
+    judet = res_j.scalars().first()
+    if not judet:
+        raise HTTPException(status_code=404, detail="Județul nu există")
+
+    res = await db.execute(
+        select(models.Localitate)
+        .options(selectinload(models.Localitate.strazi))
+        .filter(
+            models.Localitate.judet_id == judet.id,
+            models.Localitate.denumire.ilike(f"{q}%"),
+        )
+        .limit(limit)
+    )
+    return res.scalars().all()
+
+
+@router.get("/autocomplete/strazi", response_model=List[schemas.StradaOut])
+async def autocomplete_strazi(
+    cod_judet: int,
+    cod_localitate: int,
+    q: str,
+    limit: int = 10,
+    _: models.User = Depends(get_current_user),
+    __: None = Depends(rate_limiter),
+    db: AsyncSession = Depends(get_db),
+):
+    # găsește judet.id
+    res_j = await db.execute(select(models.Judet).filter(models.Judet.cod == cod_judet))
+    judet = res_j.scalars().first()
+    if not judet:
+        raise HTTPException(status_code=404, detail="Județul nu există")
+
+    # găsește localitate.id
+    res_l = await db.execute(
+        select(models.Localitate).filter(
+            models.Localitate.cod == cod_localitate,
+            models.Localitate.judet_id == judet.id,
+        )
+    )
+    loc = res_l.scalars().first()
+    if not loc:
+        raise HTTPException(status_code=404, detail="Localitatea nu există")
+
+    res_s = await db.execute(
+        select(models.Strada)
+        .filter(
+            models.Strada.localitate_id == loc.id,
+            models.Strada.denumire.ilike(f"{q}%"),
+        )
+        .limit(limit)
+    )
+    return res_s.scalars().all()
