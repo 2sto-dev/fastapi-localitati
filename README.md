@@ -100,10 +100,11 @@ Administrare utilizatori (dev-only)
   python -m scripts.create_user --username admin --password "Str0ngP@ss!"
 
 Client fără user/parolă (doar refresh token)
-- client_app/ conține:
-  - bootstrap_refresh_token.py — script one-time care obține refresh_token folosind user/parolă, apoi îl copiezi în client_app/.env (CLIENT_REFRESH_TOKEN=...)
-  - token_manager.py — gestionează refresh/access tokens; rotește și salvează refresh în client_app/.env
-  - api.py — funcții simple: get_judete(), get_localitati(), get_strazi()
+- Vezi secțiunea „Localități SDK (localitati_sdk)” pentru o prezentare profesională a SDK-ului client inclus în acest repo (folderul localitati_sdk/).
+- Pe scurt, SDK-ul oferă:
+  - TokenManager (fără .env dependențe): primește base_url + refresh_token, gestionează access_token și rotația refresh_token (prin callback opțional).
+  - API helpers: get_judete(), get_localitati(), get_strazi().
+  - CLI de test: python -m localitati_sdk.client
 
 Pași client (PowerShell)
 1) Bootstrap (o singură dată)
@@ -111,6 +112,70 @@ Pași client (PowerShell)
 - setează CLIENT_REFRESH_TOKEN în client_app/.env
 2) Apelează API doar cu refresh (TokenManager gestionează accesul)
 - python -c "from client_app.token_manager import TokenManager; from client_app.api import get_judete; tm=TokenManager(); print(len(get_judete(tm)))"
+
+Localități SDK (localitati_sdk)
+Ce este
+- localitati_sdk este un SDK Python simplu și robust pentru integrarea cu acest API, fără a stoca username/parolă în client. Utilizează exclusiv refresh_token, gestionează ciclul de viață al tokenurilor (obține access_token, reîmprospătează automat la expirare sau 401) și oferă funcții convenabile pentru endpointurile cheie.
+
+Structură (localitati_sdk/)
+- __init__.py — exporturi publice (TokenManager, get_judete, get_localitati, get_strazi, erori)
+- token_manager.py — TokenManager (nu citește/scrie .env; primește base_url + refresh_token și expune on_refresh_token_rotated pentru persistență sigură)
+- api.py — helperi HTTP: get_judete(), get_localitati(cod_judet), get_strazi(cod_judet, cod_localitate)
+- errors.py — ierarhia de erori: LocalitatiSDKError, AuthError, APIError
+- bootstrap_refresh_token.py — script one-time pentru obținerea refresh_token (folosește user/parolă)
+- client.py — CLI de test pentru SDK (fără .env), util pentru validare rapidă
+
+Pentru cine este util
+- Microservicii/servicii interne care consumă nomenclatoarele ANAF (citire) fără a gestiona credențiale de utilizator.
+- ETL/automatizări/headless jobs unde token-only (refresh) este preferat.
+- CLI-uri sau aplicații care doresc rotație automată a tokenurilor și un strat minim peste requests.
+
+Caracteristici
+- TokenManager:
+  - Acceptă base_url și refresh_token (nu depinde de .env).
+  - Obține access_token prin POST /token/refresh.
+  - Cachează access_token + exp și reîmprospătează proactiv (implicit cu 30s înainte de expirare) sau la 401/403.
+  - Rotează refresh_token; oferă callback on_refresh_token_rotated(refresh) pentru a salva noul token într-un secret store.
+- API helpers:
+  - get_judete(tm) → List[dict]
+  - get_localitati(tm, cod_judet: int) → List[dict]
+  - get_strazi(tm, cod_judet: int, cod_localitate: int) → List[dict]
+  - Pentru ierarhie completă: tm.request("GET", "/api/tree", params={...})
+
+Instalare / utilizare
+- Dependințe: Python 3.11+, requests.
+- În acest repo, SDK-ul este local (localitati_sdk/). Îl poți folosi direct:
+
+  Programatic (exemplu scurt):
+  python - <<PY
+  from localitati_sdk.token_manager import TokenManager
+  from localitati_sdk.api import get_judete, get_localitati, get_strazi
+  tm = TokenManager(base_url="http://127.0.0.1:8080", refresh_token="<REFRESH_TOKEN>")
+  judete = get_judete(tm)
+  cod = judete[0]["cod"]
+  print("judete:", len(judete))
+  print("localitati in primul judet:", len(get_localitati(tm, cod)))
+  PY
+
+  CLI de test (fără .env):
+  python -m localitati_sdk.client --base-url http://127.0.0.1:8080 --refresh-token <REFRESH_TOKEN> --cod-judet 12 --limit 3
+
+Bootstrap refresh_token (one-time)
+- Obține refresh_token folosind user/parolă, apoi stochează-l în secret store/config la alegere:
+  python -m localitati_sdk.bootstrap_refresh_token --username admin --password "Str0ngP@ss!" --base http://127.0.0.1:8080
+  # Doar token-ul (pentru scripting):
+  python -m localitati_sdk.bootstrap_refresh_token --username admin --password "Str0ngP@ss!" --only-refresh
+
+Integrare sigură (producție)
+- Nu păstra refresh_token în fișiere locale; folosește un secret store (Vault, AWS Secrets Manager, Azure Key Vault etc.).
+- Utilizează on_refresh_token_rotated în TokenManager pentru a salva refresh_token-ul nou după fiecare rotație.
+- Limitează permisiunile contului care emite refresh_token (doar citire pentru nomenclatoare).
+
+Depanare SDK
+- AuthError: eșec la /token/refresh — verifică refresh_token-ul și drepturile.
+- APIError: coduri HTTP >= 400 — vezi status_code și body pentru detalii.
+- 422 la /api/localitati/None: asigură-te că treci un cod_judet valid (preia-l din /api/judete care întoarce cod, denumire).
+- 401/403 persistente: regenerează refresh_token sau verifică că bearer tokenul este trimis (TokenManager face asta automat).
 
 Securitate
 - Tokenurile includ iat/nbf/exp și tip explicit; refresh are rotație la /token/refresh.
